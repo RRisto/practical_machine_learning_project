@@ -1,0 +1,151 @@
+---
+title: "Practical Machine Learning Course Project"
+output: html_document
+---
+
+##Introduction
+
+The aim of this analysis is to create a model which predicts the manner in which participants did the exercise (classe variable in datasets). Data is from the following study: 
+
+[Velloso, E.](http://groupware.les.inf.puc-rio.br/collaborator.jsf?p1=evelloso); Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises.](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201) Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+More information about the study could be found here: http://groupware.les.inf.puc-rio.br/har (under section Weight Lifting Exercises Dataset).
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+So as previously said the goal of your project is to predict the manner in which they did the exercise.
+
+Data used for training could be found here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+Data used for testing could be found here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+##Data loading and preprocessing
+
+First datasets are loaded in.
+
+```{r, cache=TRUE}
+#it's assumed that datasets are in working directory folder
+data.train=read.csv("pml-training.csv", 
+                    na.strings = c("NA","#DIV/0!",""))
+data.test=read.csv("pml-testing.csv",
+                   na.strings = c("NA","#DIV/0!",""))
+```
+
+We keep only variables which do not have any NAs (there are many variables which mostly consists of NAs). Also first 7 variables are dropped because they are not  needed for predicting (they are not directly related to excercise performance.
+```{r, cache=TRUE}
+#remove first seven columns
+data.train=data.train[, -c(1:7)]
+data.test=data.test[, -c(1:7)]
+#remove columns which contain NAs
+data.train<-data.train[,colSums(is.na(data.train)) == 0]
+data.test<-data.test[,colSums(is.na(data.test)) == 0]
+```
+
+For cross validation we create training and test dataset from initial training dataset (60% for training, 40% for testing). Initial testing dataset will be used for computing final predictions that will be submitted.
+```{r, message=FALSE, warning=FALSE, cache=TRUE}
+library(caret)
+inTrain <- createDataPartition(y=data.train$classe,
+                               p=0.6, list=FALSE)
+inTrain.train <- data.train[inTrain,]
+inTrain.test <- data.train[-inTrain,]
+```
+```{r, echo=FALSE}
+obs.train=dim(inTrain.train)[1]
+var.train=dim(inTrain.train)[2]
+obs.test=dim(inTrain.test)[1]
+var.test=dim(inTrain.test)[2]
+```
+Training dataset consists of `r obs.train` observations and `r var.train` variables. Testing dataset consists of `r obs.test` observations and `r var.test` variables.
+
+From the following plot we could see that most observations in training dataset are in category A and least  of them are in category D. All the categories have at minimum 1930 observations.
+```{r}
+plot(inTrain.train$classe, ylab="Frequency",xlab="classe categories")
+```
+
+To prepare data for model building we try to find if there are any variables with near zero variability. Variables which have near zero variability don't change as the outcome changes and have little value in model building.
+```{r, cache=TRUE}
+nsv <- nearZeroVar(inTrain.train,saveMetrics=TRUE)
+length(nsv$zeroVar[nsv$zeroVar=="TRUE"])
+length(nsv$nzv[nsv$nzv=="TRUE"])
+```
+
+As seen there are no variables which have near zero variability and we could use all the variables to build prediction model.
+
+##Model building
+
+As the aim of the model is to predict in which fashion (category/segment) excercise was done, first decision-tree based model is chosen. We fit the “CART” model (method "rpart").
+```{r, message=FALSE, warning=FALSE}
+#seed is set for reproducibility
+set.seed(100)
+library(caret)
+modFit <- train(classe ~ .,method="rpart",data=inTrain.train)
+library(rattle)
+library(rpart.plot)
+fancyRpartPlot(modFit$finalModel, sub="")
+```
+
+To assess how well model predicts results we use test dataset.
+```{r, cache=TRUE, message=FALSE, warning=FALSE}
+prediction1 <- predict(modFit, inTrain.test)
+confusionMatrix(prediction1, inTrain.test$classe)
+```
+
+As seen from the table model accuracy on testing set is about 50%, which is pretty low. More or less model predicts well category A (sensitivity 89.6%), but is worse prediciting other categories (for example predicting category D sensitivity is 0%). For a better prediction model random forest method is chosen. And its accuracy is assessed on test dataset.
+```{r, cache=TRUE, message=FALSE, warning=FALSE}
+set.seed(100)
+library(randomForest)
+model2 <- randomForest(classe ~ ., data=inTrain.train, method="class")
+prediction2 <- predict(model2, inTrain.test)
+confusionMatrix(prediction2, inTrain.test$classe)
+```
+
+As seen from the table random forest prediction accuracy on test dataset is 99.5% which is subtantial increase compared to the initial model. As seen from the confusion matrix specificity is high for all exercise categories (all higher than 98%). Also as seen from the matrix that category D is still hardest to predict. Expected out of sample error is 1-0.995=0.005.
+
+Here is the plot where we could see how different categories errors was reduced as the number of trees increased.
+```{r}
+library(reshape2)
+errors=melt(model2$err.rate)
+
+library(ggplot2)
+ggplot(subset(errors, Var2!="OOB"), aes(x=Var1, y=value, group=Var2))+
+    geom_line(aes(color=Var2))+
+    ylab("Error")+
+    xlab("trees")+
+    scale_colour_discrete(name="Category (classe)")
+```
+
+As seen from the plot random forest method has helped to build a model with low error. But this model might not have so high accuracy on other datasets because model was calibrated on training dataset which might have some noise which is not present in other datasets. This means that model out of sample error 0.005 is minimum expected error (because we haven't trained model with other data sets except train data set).
+
+##Answer submission
+
+For answer submission (based on initial test data) following code is used: 
+```{r, cache=TRUE, message=FALSE, warning=FALSE}
+#create answers for each of the 20 cases in test dataset
+prediction3 <- predict(model2, data.test)
+#create a function to write separate files which contains only right category letter
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+pml_write_files(prediction3)
+```
+
+Answers for course project are following:
+```{r}
+prediction3
+```
+
+##Conclusion
+We fitted two models on the training dataset to get the best prediction model for excercise categories. First model (decision tree method "rpart") has low accuracy (about 50%). For that reason second model (method "random forest") was used. This model has very high accuracy and low out of the sample error (about 0.5% on test data) on testing data. For this reason random forest based model is chosen. Also out of sample error was 0.5% on test data set. In other data sets it might be bigger.
+
+##Additional materials
+Making this analysis following material were used:
+
+- [Popular Decision Tree: Classification and Regression Trees (C&RT)](http://www.statsoft.com/Textbook/Classification-and-Regression-Trees)
+
+- [Predictive Modeling with R and the caret Package useR](http://www.google.ee/url?sa=t&rct=j&q=&esrc=s&source=web&cd=1&cad=rja&uact=8&ved=0CCAQFjAA&url=http%3A%2F%2Fwww.edii.uclm.es%2F~useR-2013%2FTutorials%2Fkuhn%2Fuser_caret_2up.pdf&ei=EofXVIyEPOTh7AbN6YCgAg&usg=AFQjCNHj5KnzX_wUDgqMITW66QoaxbfFwQ&sig2=aZpHr61vrCxRbEsgnVIBAg&bvm=bv.85464276,d.ZGU)
+
+- [An Introduction to Statistical Learning](http://www-bcf.usc.edu/~gareth/ISL/ISLR%20First%20Printing.pdf)
+
