@@ -11,9 +11,19 @@ The aim of this analysis is to create a model which predicts the manner in which
 
 More information about the study could be found here: http://groupware.les.inf.puc-rio.br/har (under section Weight Lifting Exercises Dataset).
 
-Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: 
 
-So as previously said the goal of your project is to predict the manner in which they did the exercise.
+- exactly according to the specification (Class A), 
+
+- throwing the elbows to the front (Class B), 
+
+- lifting the dumbbell only halfway (Class C), 
+
+- lowering the dumbbell only halfway (Class D),
+
+- throwing the hips to the front (Class E).
+
+The goal of this project is to predict the manner (class) in which participants did the exercise.
 
 Data used for training could be found here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
 Data used for testing could be found here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
@@ -40,8 +50,10 @@ data.train<-data.train[,colSums(is.na(data.train)) == 0]
 data.test<-data.test[,colSums(is.na(data.test)) == 0]
 ```
 
-For cross validation we create training and test dataset from initial training dataset (60% for training, 40% for testing). Initial testing dataset will be used for computing final predictions that will be submitted.
+For cross validation we create training and test dataset from initial training dataset (randomly assign 60% for training, 40% for testing). Initial testing dataset will be used for computing final predictions that will be submitted.
 ```{r, message=FALSE, warning=FALSE, cache=TRUE}
+#seed is set for reproducibility
+set.seed(100)
 library(caret)
 inTrain <- createDataPartition(y=data.train$classe,
                                p=0.6, list=FALSE)
@@ -56,9 +68,9 @@ var.test=dim(inTrain.test)[2]
 ```
 Training dataset consists of `r obs.train` observations and `r var.train` variables. Testing dataset consists of `r obs.test` observations and `r var.test` variables.
 
-From the following plot we could see that most observations in training dataset are in category A and least  of them are in category D. All the categories have at minimum 1930 observations.
+From the following plot we could see that most observations in training dataset are in class A and least  of them are in class D. All the calsses have at minimum 1930 observations.
 ```{r}
-plot(inTrain.train$classe, ylab="Frequency",xlab="classe categories")
+plot(inTrain.train$classe, ylab="Frequency",xlab="classe")
 ```
 
 To prepare data for model building we try to find if there are any variables with near zero variability. Variables which have near zero variability don't change as the outcome changes and have little value in model building.
@@ -72,10 +84,8 @@ As seen there are no variables which have near zero variability and we could use
 
 ##Model building
 
-As the aim of the model is to predict in which fashion (category/segment) excercise was done, first decision-tree based model is chosen. We fit the “CART” model (method "rpart").
+As the aim of the model is to predict in which fashion (class) excercise was done, first decision-tree based model is chosen. We fit the “CART” model (method "rpart").
 ```{r, message=FALSE, warning=FALSE}
-#seed is set for reproducibility
-set.seed(100)
 library(caret)
 modFit <- train(classe ~ .,method="rpart",data=inTrain.train)
 library(rattle)
@@ -89,18 +99,17 @@ prediction1 <- predict(modFit, inTrain.test)
 confusionMatrix(prediction1, inTrain.test$classe)
 ```
 
-As seen from the table model accuracy on testing set is about 50%, which is pretty low. More or less model predicts well category A (sensitivity 89.6%), but is worse prediciting other categories (for example predicting category D sensitivity is 0%). For a better prediction model random forest method is chosen. And its accuracy is assessed on test dataset.
+As seen from the table model accuracy on testing set is 49.5%, which is pretty low. More or less model classifies data well on class A (sensitivity 90.3%), but is worse classifying other classes (for example class D sensitivity is 0%). For a more accurate model random forest method is chosen. And it's accuracy is assessed on test dataset.
 ```{r, cache=TRUE, message=FALSE, warning=FALSE}
-set.seed(100)
 library(randomForest)
 model2 <- randomForest(classe ~ ., data=inTrain.train, method="class")
 prediction2 <- predict(model2, inTrain.test)
 confusionMatrix(prediction2, inTrain.test$classe)
 ```
 
-As seen from the table random forest prediction accuracy on test dataset is 99.5% which is subtantial increase compared to the initial model. As seen from the confusion matrix specificity is high for all exercise categories (all higher than 98%). Also as seen from the matrix that category D is still hardest to predict. Expected out of sample error is 1-0.995=0.005.
+As seen from the table random forest prediction accuracy on test dataset is 99.3% which is subtantial increase compared to the initial model. As seen from the confusion matrix specificity is high for all exercise classes (all higher than 98%). Also as seen from the matrix that class D is still hardest to predict. Expected out of sample error is 100%-99.3%=0.7%.
 
-Here is the plot where we could see how different categories errors was reduced as the number of trees increased.
+Here is the plot where we could see how different classes errors was reduced as the number of trees increased.
 ```{r}
 library(reshape2)
 errors=melt(model2$err.rate)
@@ -110,10 +119,10 @@ ggplot(subset(errors, Var2!="OOB"), aes(x=Var1, y=value, group=Var2))+
     geom_line(aes(color=Var2))+
     ylab("Error")+
     xlab("trees")+
-    scale_colour_discrete(name="Category (classe)")
+    scale_colour_discrete(name="Class (classe)")
 ```
 
-As seen from the plot random forest method has helped to build a model with low error. But this model might not have so high accuracy on other datasets because model was calibrated on training dataset which might have some noise which is not present in other datasets. This means that model out of sample error 0.005 is minimum expected error (because we haven't trained model with other data sets except train data set).
+As seen from the plot random forest method has helped to build a model with low error. But this model might not have so high accuracy on other datasets because model was calibrated on training dataset which might have some noise which is not present in other datasets. This means that model out of sample error 0.7% is minimum expected error (because we haven't trained model with other data sets except train data set).
 
 ##Answer submission
 
@@ -121,7 +130,7 @@ For answer submission (based on initial test data) following code is used:
 ```{r, cache=TRUE, message=FALSE, warning=FALSE}
 #create answers for each of the 20 cases in test dataset
 prediction3 <- predict(model2, data.test)
-#create a function to write separate files which contains only right category letter
+#create a function to write separate files which contains only right class letter
 pml_write_files = function(x){
     n = length(x)
     for(i in 1:n){
@@ -138,7 +147,7 @@ prediction3
 ```
 
 ##Conclusion
-We fitted two models on the training dataset to get the best prediction model for excercise categories. First model (decision tree method "rpart") has low accuracy (about 50%). For that reason second model (method "random forest") was used. This model has very high accuracy and low out of the sample error (about 0.5% on test data) on testing data. For this reason random forest based model is chosen. Also out of sample error was 0.5% on test data set. In other data sets it might be bigger.
+Two models were fitted on the training data set to get the best prediction model for excercise classes. First model (decision tree method "rpart") had low accuracy (49.5%). For that reason second model (method "random forest") was used. This model has very high accuracy and low out of the sample error (about 0.5% on test data) on test data. For this reason random forest based model is chosen. In other data sets it might be bigger. Model most accurately classified if the excercise was done correctly (Class A, sensitivity 99.9%). Lowest classification accuracy is realted to following mistakes: lifting the dumbbell only halfway (Class C, sensitivity 99.0%) and lowering the dumbbell only halfway (Class D, sensitivity 98.7%). This is logical because both are related to moving dumbell and detecting exact type of mistake might be little difficult. But as seen both classes are still highly accurately classified on test data.
 
 ##Additional materials
 Making this analysis following material were used:
